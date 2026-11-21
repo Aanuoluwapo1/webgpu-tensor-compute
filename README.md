@@ -61,18 +61,41 @@ $$\mathrm{RMS}(\mathbf{x}_r) = \sqrt{\frac{1}{C} \sum_{c=0}^{C-1} x_{r,c}^2 + \e
 
 Given query/key tensor $X \in \mathbb{R}^{S \times H \times D}$ (with even head dimension $D$), position offset $p_0$, and frequency base $\theta = 10000.0$, each feature pair $(2p, 2p+1)$ for $p \in [0, D/2 - 1]$ at sequence index $s \in [0, S - 1]$ is rotated by angle $\phi_{s,p} = (s + p_0)\,\theta^{-2p / D}$:
 
-$$\begin{bmatrix} y_{s,h,2p} \\ y_{s,h,2p+1} \end{bmatrix} = \begin{bmatrix} \cos \phi_{s,p} & -\sin \phi_{s,p} \\ \sin \phi_{s,p} & \phantom{-}\cos \phi_{s,p} \end{bmatrix} \begin{bmatrix} x_{s,h,2p} \\ x_{s,h,2p+1} \end{bmatrix}$$
+$$
+\begin{bmatrix}
+y_{s,h,2p} \\
+y_{s,h,2p+1}
+\end{bmatrix}
+=
+\begin{bmatrix}
+\cos \phi_{s,p} & -\sin \phi_{s,p} \\
+\sin \phi_{s,p} & \cos \phi_{s,p}
+\end{bmatrix}
+\begin{bmatrix}
+x_{s,h,2p} \\
+x_{s,h,2p+1}
+\end{bmatrix}
+$$
 
-- **Orthogonal Invariant**: Because the $2 \times 2$ rotation matrix is orthogonal ($\det R = \cos^2\phi + \sin^2\phi = 1$), the Euclidean norm of every feature pair is strictly invariant: $\|(y_{2p}, y_{2p+1})\|_2 = \|(x_{2p}, x_{2p+1})\|_2$.
+- **Orthogonal Invariant**: Because the $2 \times 2$ rotation matrix is orthogonal ($\det R = \cos^2\phi + \sin^2\phi = 1$), the Euclidean L2 norm of every feature pair is strictly invariant: $\sqrt{y_{2p}^2 + y_{2p+1}^2} = \sqrt{x_{2p}^2 + x_{2p+1}^2}$.
 
 ### 3. Group-Quantized `Q4_0` Matrix-Vector Multiply (`shaders/q4_gemv.wgsl`)
 
 For a weight matrix $W \in \mathbb{R}^{R \times C}$, each row is partitioned into blocks of $B = 32$ weights ($\lceil C / 32 \rceil$ blocks per row). Within block $b$:
+
 1. **Symmetric Block Scale**:
-   $$d_b = \frac{\max_{i \in [0, 31]} |w_{b,i}|}{7.0}, \qquad q_{b,i} = \mathrm{clip}\!\left(\mathrm{nearbyint}\!\left(\frac{w_{b,i}}{d_b}\right) + 8,\; 0,\; 15\right) \in \{0, \dots, 15\}$$
+
+$$
+d_b = \frac{\max_{i \in [0, 31]} |w_{b,i}|}{7.0}, \qquad q_{b,i} = \mathrm{clip}\left(\mathrm{nearbyint}\left(\frac{w_{b,i}}{d_b}\right) + 8,\; 0,\; 15\right) \in \{0, \dots, 15\}
+$$
+
 2. **32-Bit `u32` Nibble Packing**: WebGPU storage buffers do not natively support 8-bit integer scalar types (`u8`) in standard WGSL without extensions; therefore, `webgpu-tensor-compute` packs **8 unsigned 4-bit nibbles** into each 32-bit `u32` word (`4 x u32` words = 16 bytes = 32 weights per block):
-   $$\mathrm{word}_w = \big|_{k=0}^{7} \left((q_{8w + k} \mathbin{\&} \mathrm{0xF}) \ll (4k)\right), \qquad \hat{w}_{8w+k} = \left(\mathrm{f32}\!\left((\mathrm{word}_w \gg 4k) \mathbin{\&} \mathrm{0xF}\right) - 8.0\right) \cdot d_b$$
-   - **Memory Compression**: Each block of 32 `FP32` weights (`128 bytes`) is compressed to `1 x f32` scale (`4 bytes`) + `4 x u32` packed words (`16 bytes`) = **`20 bytes` per 32 weights** (`4.5 bits/weight`, **6.4x compression** vs. `FP32`).
+
+$$
+\mathrm{word}_w = \sum_{k=0}^{7} q_{8w + k} \cdot 2^{4k}, \qquad \hat{w}_{8w+k} = \left(\mathrm{f32}\left((\mathrm{word}_w \gg 4k) \bmod 16\right) - 8.0\right) \cdot d_b
+$$
+
+- **Memory Compression**: Each block of 32 `FP32` weights (`128 bytes`) is compressed to `1 x f32` scale (`4 bytes`) + `4 x u32` packed words (`16 bytes`) = **`20 bytes` per 32 weights** (`4.5 bits/weight`, **6.4x compression** vs. `FP32`).
 
 ---
 
