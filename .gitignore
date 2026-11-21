@@ -1,10 +1,13 @@
 build/
+build-*/
 cmake-build-*/
+third_party/wgpu-native/lib/
 *.exe
 *.obj
 *.o
 *.a
 *.lib
+*.dll
 .vs/
 .vscode/
 .idea/

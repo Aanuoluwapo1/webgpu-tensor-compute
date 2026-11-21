@@ -251,6 +251,64 @@ void test_input_validation_and_error_handling() {
     check_cond(threw_corrupted_q4, "Q4_0 GEMV rejects malformed storage buffers with std::invalid_argument");
 }
 
+void test_live_gpu_dispatch_parity() {
+    using namespace wgpu_compute;
+    const auto status = query_gpu_adapter_status();
+    if (!status.available) {
+        return;
+    }
+    const std::string dir = WGPU_COMPUTE_SHADER_DIR;
+
+    // 1. Live GPU RMSNorm on non-multiple shape (17 x 517)
+    {
+        const std::size_t rows = 17, cols = 517;
+        std::mt19937 rng(42u);
+        std::uniform_real_distribution<float> dist(-1.5f, 1.5f);
+        std::vector<float> x(rows * cols), gamma(cols), y_gpu, y_golden;
+        for (auto& v : x) v = dist(rng);
+        for (auto& g : gamma) g = dist(rng);
+
+        bool used_gpu = false;
+        dispatch_rmsnorm_gpu(dir + "/rmsnorm.wgsl", x, gamma, y_gpu, rows, cols, 1e-5f, 1, &used_gpu);
+        rmsnorm_golden_f64(x, gamma, y_golden, rows, cols, 1e-5f);
+        const auto m = compute_parity_metrics(y_gpu, y_golden, 1e-5f);
+        check_cond(used_gpu && m.passed, "Live GPU WebGPU rmsnorm.wgsl dispatch parity vs FP64 (" + status.adapter_name + ")");
+    }
+
+    // 2. Live GPU RoPE on (19 x 6 x 64)
+    {
+        const std::size_t S = 19, H = 6, D = 64;
+        std::mt19937 rng(99u);
+        std::uniform_real_distribution<float> dist(-1.0f, 1.0f);
+        std::vector<float> x(S * H * D), cos_t, sin_t, y_gpu, y_golden;
+        for (auto& v : x) v = dist(rng);
+        rope_precompute_cos_sin(cos_t, sin_t, S, D, 0, 10000.0f);
+
+        bool used_gpu = false;
+        dispatch_rope_gpu(dir + "/rope.wgsl", x, cos_t, sin_t, y_gpu, S, H, D, 1, &used_gpu);
+        rope_golden_f64(x, y_golden, S, H, D, 0, 10000.0f);
+        const auto m = compute_parity_metrics(y_gpu, y_golden, 1e-5f);
+        check_cond(used_gpu && m.passed, "Live GPU WebGPU rope.wgsl dispatch parity vs FP64 (" + status.adapter_name + ")");
+    }
+
+    // 3. Live GPU Q4_0 GEMV on (23 x 100)
+    {
+        const std::size_t rows = 23, cols = 100;
+        std::mt19937 rng(777u);
+        std::uniform_real_distribution<float> dist(-1.2f, 1.2f);
+        std::vector<float> w_f32(rows * cols), x(cols), y_gpu, y_golden;
+        for (auto& w : w_f32) w = dist(rng);
+        for (auto& v : x) v = dist(rng);
+        const auto q4 = quantize_f32_to_q4_0(w_f32, rows, cols);
+
+        bool used_gpu = false;
+        dispatch_q4_gemv_gpu(dir + "/q4_gemv.wgsl", q4, x, y_gpu, 1, &used_gpu);
+        q4_gemv_golden_f64(q4, x, y_golden);
+        const auto m = compute_parity_metrics(y_gpu, y_golden, 1e-4f);
+        check_cond(used_gpu && m.passed, "Live GPU WebGPU q4_gemv.wgsl dispatch parity vs FP64 (" + status.adapter_name + ")");
+    }
+}
+
 } // namespace
 
 int main() {
@@ -261,6 +319,7 @@ int main() {
     test_rope_parity_and_invariants();
     test_q4_0_and_int8_gemv();
     test_input_validation_and_error_handling();
+    test_live_gpu_dispatch_parity();
 
     if (g_failures == 0) {
         std::cout << "=== ALL TESTS PASSED (0 failures) ===\n";

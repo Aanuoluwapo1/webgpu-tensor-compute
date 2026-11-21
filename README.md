@@ -145,21 +145,24 @@ ctest --test-dir build -C Release --output-on-failure
 [PASS] RoPE rejects odd head_dim with std::invalid_argument
 [PASS] RMSNorm rejects non-positive epsilon with std::invalid_argument
 [PASS] Q4_0 GEMV rejects malformed storage buffers with std::invalid_argument
+[PASS] Live GPU WebGPU rmsnorm.wgsl dispatch parity vs FP64 (NVIDIA GeForce GTX 1660 SUPER)
+[PASS] Live GPU WebGPU rope.wgsl dispatch parity vs FP64 (NVIDIA GeForce GTX 1660 SUPER)
+[PASS] Live GPU WebGPU q4_gemv.wgsl dispatch parity vs FP64 (NVIDIA GeForce GTX 1660 SUPER)
 === ALL TESTS PASSED (0 failures) ===
 ```
 
-### 3. Run the CLI Benchmark & Numerical Parity Harness (`wgpu_compute`)
+### 3. Run the CLI Benchmark & Live GPU Parity Harness (`wgpu_compute`)
 
 ```bash
-./build/wgpu_compute --op all --rows 64 --cols 1024 --seq-len 64 --num-heads 8 --head-dim 64 --iterations 10
+./build/wgpu_compute --op all --rows 64 --cols 1024 --seq-len 64 --num-heads 8 --head-dim 64 --iterations 50
 ```
 
 ```text
 ====================================================================================
-  webgpu-tensor-compute | Cross-Platform WGSL LLM Kernel & CPU Parity Harness
+  webgpu-tensor-compute | Cross-Platform WGSL LLM Kernel & GPU/CPU Parity Harness
 ====================================================================================
-  Execution Backend : Deterministic CPU WGSL-Workgroup Simulator vs. FP64 Reference
-  Hardware Adapter  : No live Dawn/wgpu-native GPU adapter attached (Zero fabricated telemetry)
+  Execution Backend : Live Hardware WebGPU Compute Pipeline (wgpu-native vs. FP64 Reference)
+  Hardware Adapter  : NVIDIA GeForce GTX 1660 SUPER (Vulkan, VendorID=0x10de, DeviceID=0x21c4)
   Uniform Alignment : 256 bytes | Q4_0 Block Size: 32
 ------------------------------------------------------------------------------------
   WGSL Shader Source Verification:
@@ -167,11 +170,11 @@ ctest --test-dir build -C Release --output-on-failure
     - rope.wgsl        | Status: VALID WGSL | Size: 2396  B
     - q4_gemv.wgsl     | Status: VALID WGSL | Size: 2755  B
 ------------------------------------------------------------------------------------
-Kernel Operation            Shape         CPU (ms)    MaxAbsErr     RMSE          CosineSim   Status
+Kernel Operation            Shape         GPU (ms)    MaxAbsErr     RMSE          CosineSim   Status
 ------------------------------------------------------------------------------------
-RMSNorm (WGSL f32 vs f64)   64x1024       0.0490      2.384e-07     3.449e-08     1.000000    PASS
-RoPE (WGSL f32 vs f64)      64x8x64       0.0715      1.192e-07     2.641e-08     1.000000    PASS
-Q4_0 GEMV (WGSL vs Dequant) 64x1024       0.0325      2.861e-06     1.199e-06     1.000000    PASS
+RMSNorm (GPU WGSL vs f64)   64x1024       0.0903      3.576e-07     3.721e-08     1.000000    PASS
+RoPE (GPU WGSL vs f64)      64x8x64       0.0815      1.192e-07     2.356e-08     1.000000    PASS
+Q4_0 GEMV (GPU WGSL vs f64) 64x1024       0.1158      2.861e-06     1.194e-06     1.000000    PASS
 ====================================================================================
 ```
 

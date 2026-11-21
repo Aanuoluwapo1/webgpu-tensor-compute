@@ -227,6 +227,68 @@ void int8_gemv_f32(
     std::vector<float>& output_y
 );
 
+// ============================================================================
+// 4. Live Hardware WebGPU (wgpu-native) Compute Pipeline Dispatcher
+// ============================================================================
+
+struct GpuAdapterStatus {
+    bool available = false;
+    std::string adapter_name;
+    std::string backend_name;
+    std::uint32_t vendor_id = 0;
+    std::uint32_t device_id = 0;
+};
+
+/**
+ * Queries whether a live native WebGPU hardware adapter (Vulkan / D3D12 / Metal)
+ * is attached and returns its adapter telemetry.
+ */
+GpuAdapterStatus query_gpu_adapter_status();
+
+/**
+ * Dispatches `shaders/rmsnorm.wgsl` on the physical GPU via wgpu-native if available
+ * (falling back to `rmsnorm_wgsl_f32` if unavailable). Returns average dispatch time in ms.
+ */
+double dispatch_rmsnorm_gpu(
+    const std::string& shader_path,
+    const std::vector<float>& input_x,
+    const std::vector<float>& weight_gamma,
+    std::vector<float>& output_y,
+    std::size_t rows,
+    std::size_t cols,
+    float eps = 1e-5f,
+    int iterations = 1,
+    bool* out_used_gpu = nullptr
+);
+
+/**
+ * Dispatches `shaders/rope.wgsl` on the physical GPU via wgpu-native if available.
+ */
+double dispatch_rope_gpu(
+    const std::string& shader_path,
+    const std::vector<float>& input_x,
+    const std::vector<float>& cos_table,
+    const std::vector<float>& sin_table,
+    std::vector<float>& output_y,
+    std::size_t seq_len,
+    std::size_t num_heads,
+    std::size_t head_dim,
+    int iterations = 1,
+    bool* out_used_gpu = nullptr
+);
+
+/**
+ * Dispatches `shaders/q4_gemv.wgsl` on the physical GPU via wgpu-native if available.
+ */
+double dispatch_q4_gemv_gpu(
+    const std::string& shader_path,
+    const Q4MatrixStorage& q4_mat,
+    const std::vector<float>& input_x,
+    std::vector<float>& output_y,
+    int iterations = 1,
+    bool* out_used_gpu = nullptr
+);
+
 } // namespace wgpu_compute
 
 #endif // WGPU_COMPUTE_OPS_HPP

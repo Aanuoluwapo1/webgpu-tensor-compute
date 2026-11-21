@@ -122,11 +122,21 @@ int main(int argc, char** argv) {
         return 1;
     }
 
+    const auto gpu_status = wgpu_compute::query_gpu_adapter_status();
+
     std::cout << "====================================================================================\n";
-    std::cout << "  webgpu-tensor-compute | Cross-Platform WGSL LLM Kernel & CPU Parity Harness\n";
+    std::cout << "  webgpu-tensor-compute | Cross-Platform WGSL LLM Kernel & GPU/CPU Parity Harness\n";
     std::cout << "====================================================================================\n";
-    std::cout << "  Execution Backend : Deterministic CPU WGSL-Workgroup Simulator vs. FP64 Reference\n";
-    std::cout << "  Hardware Adapter  : No live Dawn/wgpu-native GPU adapter attached (Zero fabricated telemetry)\n";
+    if (gpu_status.available) {
+        std::cout << "  Execution Backend : Live Hardware WebGPU Compute Pipeline (wgpu-native vs. FP64 Reference)\n";
+        std::cout << "  Hardware Adapter  : " << gpu_status.adapter_name
+                  << " (" << gpu_status.backend_name
+                  << ", VendorID=0x" << std::hex << gpu_status.vendor_id
+                  << ", DeviceID=0x" << gpu_status.device_id << std::dec << ")\n";
+    } else {
+        std::cout << "  Execution Backend : Deterministic CPU WGSL-Workgroup Simulator vs. FP64 Reference\n";
+        std::cout << "  Hardware Adapter  : No live Dawn/wgpu-native GPU adapter attached (Zero fabricated telemetry)\n";
+    }
     std::cout << "  Uniform Alignment : " << wgpu_compute::kWebGpuUniformBufferAlignment << " bytes | Q4_0 Block Size: "
               << wgpu_compute::kQ4BlockSize << "\n";
     std::cout << "------------------------------------------------------------------------------------\n";
@@ -160,12 +170,9 @@ int main(int argc, char** argv) {
 
         wgpu_compute::rmsnorm_golden_f64(x, gamma, y_golden, cfg.rows, cfg.cols, 1e-5f);
 
-        const auto t0 = std::chrono::steady_clock::now();
-        for (int it = 0; it < cfg.iterations; ++it) {
-            wgpu_compute::rmsnorm_wgsl_f32(x, gamma, y_wgsl, cfg.rows, cfg.cols, 1e-5f);
-        }
-        const auto t1 = std::chrono::steady_clock::now();
-        const double avg_ms = std::chrono::duration<double, std::milli>(t1 - t0).count() / cfg.iterations;
+        bool used_gpu = false;
+        const double avg_ms = wgpu_compute::dispatch_rmsnorm_gpu(
+            shader_dir + "/rmsnorm.wgsl", x, gamma, y_wgsl, cfg.rows, cfg.cols, 1e-5f, cfg.iterations, &used_gpu);
 
         const auto parity = wgpu_compute::compute_parity_metrics(y_wgsl, y_golden, 1e-5f);
         const auto align_in = wgpu_compute::compute_buffer_alignment(x.size(), sizeof(float));
@@ -173,7 +180,7 @@ int main(int argc, char** argv) {
         const auto align_out = wgpu_compute::compute_buffer_alignment(y_wgsl.size(), sizeof(float));
 
         results.push_back(KernelBenchRow{
-            "RMSNorm (WGSL f32 vs f64)",
+            used_gpu ? "RMSNorm (GPU WGSL vs f64)" : "RMSNorm (WGSL f32 vs f64)",
             std::to_string(cfg.rows) + "x" + std::to_string(cfg.cols),
             avg_ms,
             align_in.binding_aligned_bytes + align_w.binding_aligned_bytes + align_out.binding_aligned_bytes,
@@ -194,19 +201,17 @@ int main(int argc, char** argv) {
         wgpu_compute::rope_precompute_cos_sin(cos_table, sin_table, cfg.seq_len, cfg.head_dim, 0, 10000.0f);
         wgpu_compute::rope_golden_f64(x, y_golden, cfg.seq_len, cfg.num_heads, cfg.head_dim, 0, 10000.0f);
 
-        const auto t0 = std::chrono::steady_clock::now();
-        for (int it = 0; it < cfg.iterations; ++it) {
-            wgpu_compute::rope_wgsl_f32(x, cos_table, sin_table, y_wgsl, cfg.seq_len, cfg.num_heads, cfg.head_dim);
-        }
-        const auto t1 = std::chrono::steady_clock::now();
-        const double avg_ms = std::chrono::duration<double, std::milli>(t1 - t0).count() / cfg.iterations;
+        bool used_gpu = false;
+        const double avg_ms = wgpu_compute::dispatch_rope_gpu(
+            shader_dir + "/rope.wgsl", x, cos_table, sin_table, y_wgsl,
+            cfg.seq_len, cfg.num_heads, cfg.head_dim, cfg.iterations, &used_gpu);
 
         const auto parity = wgpu_compute::compute_parity_metrics(y_wgsl, y_golden, 1e-5f);
         const auto align_x = wgpu_compute::compute_buffer_alignment(x.size(), sizeof(float));
         const auto align_cs = wgpu_compute::compute_buffer_alignment(cos_table.size(), sizeof(float));
 
         results.push_back(KernelBenchRow{
-            "RoPE (WGSL f32 vs f64)",
+            used_gpu ? "RoPE (GPU WGSL vs f64)" : "RoPE (WGSL f32 vs f64)",
             std::to_string(cfg.seq_len) + "x" + std::to_string(cfg.num_heads) + "x" + std::to_string(cfg.head_dim),
             avg_ms,
             align_x.binding_aligned_bytes * 2 + align_cs.binding_aligned_bytes * 2,
@@ -225,12 +230,9 @@ int main(int argc, char** argv) {
         std::vector<float> y_dequant_f64;
         wgpu_compute::q4_gemv_golden_f64(q4_mat, input_x, y_dequant_f64);
 
-        const auto t0 = std::chrono::steady_clock::now();
-        for (int it = 0; it < cfg.iterations; ++it) {
-            wgpu_compute::q4_gemv_wgsl_f32(q4_mat, input_x, y_wgsl);
-        }
-        const auto t1 = std::chrono::steady_clock::now();
-        const double avg_ms = std::chrono::duration<double, std::milli>(t1 - t0).count() / cfg.iterations;
+        bool used_gpu = false;
+        const double avg_ms = wgpu_compute::dispatch_q4_gemv_gpu(
+            shader_dir + "/q4_gemv.wgsl", q4_mat, input_x, y_wgsl, cfg.iterations, &used_gpu);
 
         const auto parity = wgpu_compute::compute_parity_metrics(y_wgsl, y_dequant_f64, 1e-4f);
         const auto align_scales = wgpu_compute::compute_buffer_alignment(q4_mat.block_scales.size(), sizeof(float));
@@ -239,7 +241,7 @@ int main(int argc, char** argv) {
         const auto align_y = wgpu_compute::compute_buffer_alignment(y_wgsl.size(), sizeof(float));
 
         results.push_back(KernelBenchRow{
-            "Q4_0 GEMV (WGSL vs Dequant)",
+            used_gpu ? "Q4_0 GEMV (GPU WGSL vs f64)" : "Q4_0 GEMV (WGSL vs Dequant)",
             std::to_string(cfg.rows) + "x" + std::to_string(cfg.cols),
             avg_ms,
             align_scales.binding_aligned_bytes + align_words.binding_aligned_bytes +
@@ -253,7 +255,7 @@ int main(int argc, char** argv) {
     std::cout << std::left
               << std::setw(28) << "Kernel Operation"
               << std::setw(14) << "Shape"
-              << std::setw(12) << "CPU (ms)"
+              << std::setw(12) << (gpu_status.available ? "GPU (ms)" : "CPU (ms)")
               << std::setw(14) << "MaxAbsErr"
               << std::setw(14) << "RMSE"
               << std::setw(12) << "CosineSim"
