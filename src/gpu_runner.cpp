@@ -264,6 +264,7 @@ double dispatch_rmsnorm_gpu(
             std::uint32_t pad0;
         } params{static_cast<std::uint32_t>(rows), static_cast<std::uint32_t>(cols), eps, 0u};
 
+        if (rows > 65535) { throw std::invalid_argument("rmsnorm dispatch: rows exceeds maxComputeWorkgroupsPerDimension (65535)"); }
         const std::string code = load_text_file(shader_path);
         WGPUShaderModule mod = create_wgsl_module(ctx.device, code, "rmsnorm_wgsl");
         WGPUComputePipeline pipeline = create_compute_pipeline(ctx.device, mod, "rmsnorm_pipeline");

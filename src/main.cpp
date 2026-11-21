@@ -255,7 +255,7 @@ int main(int argc, char** argv) {
     std::cout << std::left
               << std::setw(28) << "Kernel Operation"
               << std::setw(14) << "Shape"
-              << std::setw(12) << (gpu_status.available ? "GPU (ms)" : "CPU (ms)")
+              << std::setw(12) << (gpu_status.available ? "Wall (ms)" : "CPU (ms)")
               << std::setw(14) << "MaxAbsErr"
               << std::setw(14) << "RMSE"
               << std::setw(12) << "CosineSim"

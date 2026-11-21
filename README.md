@@ -170,7 +170,7 @@ ctest --test-dir build -C Release --output-on-failure
     - rope.wgsl        | Status: VALID WGSL | Size: 2396  B
     - q4_gemv.wgsl     | Status: VALID WGSL | Size: 2755  B
 ------------------------------------------------------------------------------------
-Kernel Operation            Shape         GPU (ms)    MaxAbsErr     RMSE          CosineSim   Status
+Kernel Operation            Shape         Wall (ms)   MaxAbsErr     RMSE          CosineSim   Status
 ------------------------------------------------------------------------------------
 RMSNorm (GPU WGSL vs f64)   64x1024       0.0903      3.576e-07     3.721e-08     1.000000    PASS
 RoPE (GPU WGSL vs f64)      64x8x64       0.0815      1.192e-07     2.356e-08     1.000000    PASS
@@ -233,3 +233,11 @@ webgpu-tensor-compute/
 ├── CMakeLists.txt
 └── README.md
 ```
+
+---
+
+## Known Limitations
+
+- The timing column is **host wall-clock** around submit + `wgpuDevicePoll` (includes submission latency), not GPU timestamp queries.
+- `rmsnorm` dispatches one workgroup per row and rejects `rows > 65535` (`maxComputeWorkgroupsPerDimension`). Buffers larger than the adapter's `maxStorageBufferBindingSize` are not chunked.
+- No uncaptured-error callback is installed; shader/validation failures surface as parity failures.
